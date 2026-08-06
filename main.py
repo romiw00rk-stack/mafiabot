@@ -193,7 +193,7 @@ def anti_toxic(message):
                 update_user_data(user_id, "ban_until", ban_time)
                 try:
                     bot.ban_chat_member(message.chat.id, user_id)
-                    bot.send_message(message.chat.id, f"🚫 کاربر {message.from_ la_first_name} به دلیل تخلف، ۲۴ ساعت به زندان منتقل شد! ⛓️")
+                    bot.send_message(message.chat.id, f"🚫 کاربر {message.from_user.first_name} به دلیل تخلف، ۲۴ ساعت به زندان منتقل شد! ⛓️")
                 except: pass
                 update_user_data(user_id, "warnings", 0)
 
