@@ -11,17 +11,7 @@ ADMIN_ID = 580588329
 CARD_NUMBER = "5022291095892657" 
 CARD_NAME = "رومینا" 
 SUPPORT_USERNAME = "@mafiasho_admin"
-BAD_WORDS = ["کلمه۱", "کلمه۲", "کلمه۳"] # کلمات ممنوعه را اینجا کامل کن
 # ===========================================================
-
-ROOM_LINKS = [
-    "https://t.me/+HJ1A76sBGEAwYTdk", "https://t.me/+DWnJJcyBkmhhZTBk",
-    "https://t.me/+X-r4xtXJaXpkMzJk", "https://t.me/+p1Estt71cU45NzBk",
-    "https://t.me/+RLbTxBn7Bd9jOWM0", "https://t.me/+4xuDGo_zD7IxNDU0",
-    "https://t.me/+P0yblouGcJphNjI0", "https://t.me/+e01UDD1ALU42ZjQ8",
-    "https://t.me/+h1tTM4wvK0M1ZjU0", "https://t.me/+yBIzkezu7HA0MTA8"
-]
-used_rooms = []
 
 app = Flask('')
 @app.route('/')
@@ -45,18 +35,24 @@ def init_db():
             balance INTEGER DEFAULT 30, 
             wins INTEGER DEFAULT 0,
             losses INTEGER DEFAULT 0,
-            warnings INTEGER DEFAULT 0,
-            ban_until INTEGER DEFAULT 0
+            last_daily INTEGER DEFAULT 0
         )
     """)
     conn.commit()
     conn.close()
 
-def get_user(user_id):
+def get_or_create_user(user_id, username):
     conn = sqlite3.connect("mafia.db")
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
+    cursor.execute("SELECT user_id, username, gender, balance, wins, losses FROM users WHERE user_id = ?", (user_id,))
     user = cursor.fetchone()
+    if not user:
+        # موجودی اولیه 30 سکه برای بازی اول
+        cursor.execute("INSERT INTO users (user_id, username, gender, balance, wins, losses) VALUES (?, ?, ?, ?, ?, ?)",
+                     (user_id, username, 'نامشخص', 30, 0, 0))
+        conn.commit()
+        cursor.execute("SELECT user_id, username, gender, balance, wins, losses FROM users WHERE user_id = ?", (user_id,))
+        user = cursor.fetchone()
     conn.close()
     return user
 
@@ -70,132 +66,150 @@ def update_user_data(user_id, column, value):
 TOKEN = '8483915034:AAGBY8ssHFQCWLzkvoa7dCupw0rSiqbgeq4' 
 bot = telebot.TeleBot(TOKEN)
 
-game_rooms = {
-    "زودیاک": {"players": [], "min_players": 8},
-    "شب مافیا": {"players": [], "min_players": 8},
-    "پدرخوانده": {"players": [], "min_players": 8},
-    "کلاسیک پیشرفته": {"players": [], "min_players": 8}
-}
+user_payment_step = {}
+user_report_step = {}
 
-# ================= دستور استارت و منوی اصلی =================
+def get_main_keyboard():
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.row(types.KeyboardButton("🕹 شروع بازی آنلاین"))
+    markup.row(types.KeyboardButton("⚡ چالش"), types.KeyboardButton("🎭 سناریو"))
+    markup.row(types.KeyboardButton("👤 پروفایل"), types.KeyboardButton("🌟 امتیازات"), types.KeyboardButton("❤️ دوستان"))
+    markup.row(types.KeyboardButton("🔦 سایر"), types.KeyboardButton("📞 پشتیبانی"), types.KeyboardButton("💳 حساب"))
+    return markup
+
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
-    user_id = message.from_user.id
-    username = message.from_user.username or message.from_user.first_name
-    if not get_user(user_id):
-        conn = sqlite3.connect("mafia.db")
-        cursor = conn.cursor()
-        cursor.execute("INSERT INTO users (user_id, username) VALUES (?, ?)", (user_id, username))
-        conn.commit()
-        conn.close()
+    bot.send_message(message.chat.id, "خوش آمدید! گزینه‌ای را انتخاب کنید:", reply_markup=get_main_keyboard())
 
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    btn_game = types.KeyboardButton("🕹 شروع بازی آنلاین")
-    btn_profile = types.KeyboardButton("👤 پروفایل")
-    btn_wallet = types.KeyboardButton("💰 کیف پول")
-    btn_topup = types.KeyboardButton("💳 شارژ حساب")
-    markup.add(btn_game, btn_profile)
-    markup.add(btn_wallet, btn_topup)
-    
-    bot.send_message(message.chat.id, "🃏 *به ربات مدیریت بازی مافیا خوش آمدید!*\n\nلطفاً از منوی پایین استفاده کنید:", parse_mode="Markdown", reply_markup=markup)
-
-# ================= بخش کیف پول و شارژ =================
-@bot.message_handler(func=lambda message: message.text == "💰 کیف پول")
-def wallet(message):
-    user = get_user(message.from_user.id)
-    if user:
-        bot.reply_to(message, f"💰 *موجودی شما:* {user[3]} سکه", parse_mode="Markdown")
-
-@bot.message_handler(func=lambda message: message.text == "💳 شارژ حساب")
-def topup(message):
-    text = (f"💳 *برای شارژ حساب، مبلغ مورد نظر را به شماره زیر واریز کنید:*\n\n"
-            f"🔢 شماره کارت: `{CARD_NUMBER}`\n"
-            f"👤 نام صاحب حساب: {CARD_NAME}\n\n"
-            f"پس از واریز، رسید را به {SUPPORT_USERNAME} ارسال کنید.")
-    bot.reply_to(message, text, parse_mode="Markdown")
-
-# ================= پروفایل جذاب =================
 @bot.message_handler(func=lambda message: message.text == "👤 پروفایل")
 def show_profile(message):
     user_id = message.from_user.id
-    u_data = get_user(user_id)
-    if not u_data: return
-    name, gender, wins, losses, warns, ban_until = u_data[1], u_data[2], u_data[4], u_data[5], u_data[6], u_data[7]
-    status = "🟢 فعال و آماده بازی"
-    if ban_until and ban_until > time.time():
-        status = "🚫 در بازداشتگاه است (بن ۲۴ ساعته)"
-    elif warns > 0:
-        status = f"⚠️ در معرض خطر ( {warns} اخطار دارد)"
-    profile_text = (f"─── ⋆ 🃏 ⋆ ───\n✨ *پروفایل بازیکن*\n────────────────\n👤 نام: {name}\n🛡 وضعیت: {status}\n────────────────\n🏆 برد: {wins} | ❌ باخت: {losses}\n🌟 رنک: {'لجند 👑' if wins > 20 else 'مبتدی 🌱'}\n────────────────")
-    bot.reply_to(message, profile_text, parse_mode="Markdown")
-
-# ================= سیستم بازی و اتاق‌ها =================
-@bot.message_handler(func=lambda message: message.text == "🕹 شروع بازی آنلاین")
-def game_selection(message):
+    username = message.from_user.first_name
+    user_data = get_or_create_user(user_id, username)
+    
+    name, gender, wins, losses = user_data[1], user_data[2], user_data[4], user_data[5]
+    total_games = wins + losses
+    win_rate = int((wins / total_games) * 100) if total_games > 0 else 0
+    
+    profile_text = (
+        f"─── ⋆ 👤 ⋆ ───\n"
+        f"✨ *مشخصات کاربری*\n"
+        f"────────────────\n"
+        f"👤 نام: {name}\n"
+        f"⚧ جنسیت: {gender}\n"
+        f"🆔 شناسه: `{user_id}`\n\n"
+        f"🎮 *آمار بازی‌ها*\n"
+        f"🏆 برد: {wins}\n"
+        f"❌ باخت: {losses}\n"
+        f"📈 درصد برد: {win_rate}%\n"
+        f"────────────────"
+    )
+    
     markup = types.InlineKeyboardMarkup(row_width=2)
-    buttons = [types.InlineKeyboardButton("🌌 زودیاک", callback_data="join_زودیاک"),
-               types.InlineKeyboardButton("🌑 شب مافیا", callback_data="join_شب مافیا"),
-               types.InlineKeyboardButton("🎩 پدرخوانده", callback_data="join_پدرخوانده"),
-               types.InlineKeyboardButton("🏆 کلاسیک پیشرفته", callback_data="join_کلاسیک پیشرفته")]
-    markup.add(*buttons)
-    bot.send_message(message.chat.id, "🎯 *مدل بازی مورد نظر خود را انتخاب کنید:*", parse_mode="Markdown", reply_markup=markup)
+    markup.add(types.InlineKeyboardButton("تغییر نام ✏️", callback_data="edit_name"), 
+               types.InlineKeyboardButton("تغییر جنسیت ⚧️", callback_data="edit_gender"))
+    markup.add(types.InlineKeyboardButton("بستن ❌", callback_data="close_profile"))
+    
+    bot.reply_to(message, profile_text, parse_mode="Markdown", reply_markup=markup)
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith("join_"))
-def join_game(call):
-    game_name = call.data.split("_")[1]
-    user = call.from_user
-    u_data = get_user(user.id)
-    if u_data and u_data[7] and u_data[7] > time.time():
-        bot.answer_callback_query(call.id, "❌ تو فعلاً توی زندانی!", show_alert=True)
-        return
-    if user.first_name not in game_rooms[game_name]["players"]:
-        game_rooms[game_name]["players"].append(user.first_name)
-        count = len(game_rooms[game_name]["players"])
-        players_list = "\n".join([f"🔹 {p}" for p in game_rooms[game_name]["players"]])
-        text = (f"🎮 *اتاق انتظار: {game_name}*\n────────────────\n👥 بازیکنان حاضر:\n{players_list}\n────────────────\n⏳ تعداد: {count} / 8")
-        if count >= 8:
-            available_rooms = [r for r in ROOM_LINKS if r not in used_rooms]
-            if available_rooms:
-                room_link = available_rooms[0]
-                used_rooms.append(room_link)
-                bot.edit_message_text(f"🚀 *تعداد بازیکنان تکمیل شد!*\n\n🎮 بازی {game_name} استارت خورد.\n\n👇 *فقط ۸ نفر منتخب* مجاز به ورود هستند:\n{room_link}", call.message.chat.id, call.message.message_id, parse_mode="Markdown")
-                game_rooms[game_name]["players"] = []
-            else:
-                bot.send_message(call.message.chat.id, "❌ تمام اتاق‌های گیم پر هستند.")
-        else:
-            bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="Markdown")
-            bot.answer_callback_query(call.id, "وارد اتاق شدید ✅")
-    else:
-        bot.answer_callback_query(call.id, "شما قبلاً ثبت‌نام کرده‌اید! ⚠️")
-
-# ================= دستورات ادمین و ضد بی‌ادبی =================
-@bot.message_handler(commands=['reset_room'])
-def reset_room(message):
-    if message.from_user.id == ADMIN_ID:
-        global used_rooms
-        used_rooms = [] 
-        bot.send_message(message.chat.id, "✅ تمام اتاق‌های گیم ریست شدند.")
-
-@bot.message_handler(func=lambda message: True)
-def anti_toxic(message):
+@bot.message_handler(func=lambda message: message.text == "💳 حساب")
+def coin_section(message):
     user_id = message.from_user.id
-    text = message.text.lower() if message.text else ""
-    if any(word in text for word in BAD_WORDS):
-        user = get_user(user_id)
-        if user:
-            warns = user[6] if user[6] else 0
-            warns += 1
-            update_user_data(user_id, "warnings", warns)
-            if warns < 3:
-                bot.reply_to(message, f"⚠️ {message.from_user.first_name} عزیز!\nبی‌ادبی ممنوع است.\n🔴 اخطار {warns} از ۳", parse_mode="Markdown")
-            else:
-                ban_time = int(time.time()) + (24 * 3600)
-                update_user_data(user_id, "ban_until", ban_time)
-                try:
-                    bot.ban_chat_member(message.chat.id, user_id)
-                    bot.send_message(message.chat.id, f"🚫 کاربر {message.from_user.first_name} به دلیل تخلف، ۲۴ ساعت به زندان منتقل شد! ⛓️")
-                except: pass
-                update_user_data(user_id, "warnings", 0)
+    user_data = get_or_create_user(user_id, message.from_user.first_name)
+    balance = user_data[3]
+    
+    coin_text = (f"💳 *مدیریت حساب کاربری*\n"
+                 f"────────────────\n\n"
+                 f"💰 موجودی فعلی شما:\n"
+                 f"`{balance} سکه`\n\n"
+                 f"────────────────\n"
+                 f"هر بازی ۳۰ سکه هزینه دارد.")
+    
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("💳 شارژ حساب", callback_data="top_up"))
+    bot.reply_to(message, coin_text, parse_mode="Markdown", reply_markup=markup)
+
+@bot.message_handler(func=lambda message: message.text == "📞 پشتیبانی")
+def support_section(message):
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("📩 ارسال گزارش", callback_data="send_report"))
+    markup.add(types.InlineKeyboardButton("👨‍💻 ارتباط با ادمین", callback_data="contact_admin"))
+    
+    support_text = "🛠 *بخش پشتیبانی*\n────────────────\nلطفاً گزینه مورد نظر خود را انتخاب کنید:"
+    bot.reply_to(message, support_text, parse_mode="Markdown", reply_markup=markup)
+
+@bot.message_handler(func=lambda message: message.text == "❤️ دوستان")
+def friends_section(message):
+    bot.reply_to(message, "👥 شما در حال حاضر هیچ دوستی ندارید.")
+
+@bot.message_handler(func=lambda message: message.text == "🌟 امتیازات")
+def ranking_section(message):
+    bot.reply_to(message, "🏆 *رده‌بندی کلی*\n────────────────\nدر حال حاضر لیست امتیازات در حال به‌روزرسانی است.")
+
+@bot.callback_query_handler(func=lambda call: True)
+def handle_callback(call):
+    user_id = call.from_user.id
+    if call.data == "close_profile":
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+    elif call.data == "edit_name":
+        msg = bot.send_message(call.message.chat.id, "✍️ نام جدید خود را بنویسید:")
+        bot.register_next_step_handler(msg, save_new_name)
+    elif call.data == "edit_gender":
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("پسر 👦", callback_data="set_boy"), types.InlineKeyboardButton("دختر 👧", callback_data="set_girl"))
+        bot.edit_message_text("جنسیت خود را انتخاب کنید:", call.message.chat.id, call.message.message_id, reply_markup=markup)
+    elif call.data in ["set_boy", "set_girl"]:
+        gender_text = "پسر 👦" if call.data == "set_boy" else "دختر 👧"
+        update_user_data(user_id, "gender", gender_text)
+        bot.answer_callback_query(call.id, "تغییر کرد ✅")
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+    
+    # --- بخش پشتیبانی ---
+    elif call.data == "contact_admin":
+        bot.answer_callback_query(call.id, "در حال انتقال...")
+        bot.send_message(call.message.chat.id, f"برای ارتباط با مدیریت کلیک کنید:\n{SUPPORT_USERNAME}")
+    elif call.data == "send_report":
+        user_report_step[user_id] = True
+        msg = bot.send_message(call.message.chat.id, "📝 لطفاً گزارش یا مشکل خود را بنویسید و ارسال کنید:")
+        bot.register_next_step_handler(msg, process_report)
+
+    # --- بخش شارژ ---
+    elif call.data == "top_up":
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("💎 ۱۶۰ هزار تومان", callback_data="pay_160"))
+        markup.add(types.InlineKeyboardButton("💎 ۳۴۰ هزار تومان", callback_data="pay_340"))
+        markup.add(types.InlineKeyboardButton("💎 ۵۵۰ هزار تومان", callback_data="pay_550"))
+        bot.edit_message_text("💵 مبلغ شارژ را انتخاب کنید:", call.message.chat.id, call.message.message_id, reply_markup=markup)
+    elif call.data.startswith("pay_"):
+        amount = call.data.split("_")[1]
+        user_payment_step[user_id] = amount
+        payment_text = (f"💳 *اطلاعات واریز*\n━━━━━━━━━━━━\n\n💰 مبلغ: `{amount},000 تومان`\n📌 شماره کارت: `{CARD_NUMBER}`\n👤 به نام: `{CARD_NAME}`\n\nلطفاً عکس رسید را بفرستید.")
+        bot.send_message(call.message.chat.id, payment_text, parse_mode="Markdown")
+
+def process_report(message):
+    user_id = message.from_user.id
+    if user_id in user_report_step:
+        report_text = (f"📩 *گزارش جدید*\n────────────────\n"
+                       f"👤 کاربر: {message.from_user.first_name}\n"
+                       f"🆔 آیدی: `{user_id}`\n"
+                       f"📝 متن گزارش:\n{message.text}")
+        bot.send_message(ADMIN_ID, report_text, parse_mode="Markdown")
+        bot.reply_to(message, "✅ گزارش شما با موفقیت برای مدیریت ارسال شد. متشکریم.")
+        del user_report_step[user_id]
+
+@bot.message_handler(content_types=['photo'])
+def handle_receipt(message):
+    user_id = message.from_user.id
+    if user_id in user_payment_step:
+        amount = user_payment_step[user_id]
+        bot.send_photo(ADMIN_ID, message.photo[-1].file_id, 
+                      caption=f"📩 رسید جدید\n👤 کاربر: {message.from_user.first_name}\n🆔 آیدی: `{user_id}`\n💰 مبلغ: {amount} هزار تومان")
+        bot.reply_to(message, "✅ رسید شما دریافت شد. منتظر تایید مدیریت باشید.")
+        del user_payment_step[user_id]
+
+def save_new_name(message):
+    update_user_data(message.from_user.id, "username", message.text)
+    bot.send_message(message.chat.id, f"✅ نام شما به {message.text} تغییر یافت.")
 
 if __name__ == "__main__":
     init_db()
