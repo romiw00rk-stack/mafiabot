@@ -21,7 +21,8 @@ def init_db():
 def get_user(user_id):
     conn = sqlite3.connect("mafia.db")
     cursor = conn.cursor()
-    cursor.execute("SELECT  FROM users WHERE user_id = ?", (user_id,))
+    # در خط پایین علامت  اضافه شد تا خطا برطرف شود
+    cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
     user = cursor.fetchone()
     conn.close()
     return user
