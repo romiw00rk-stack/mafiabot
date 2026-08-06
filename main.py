@@ -5,6 +5,8 @@ from threading import Thread
 from flask import Flask
 import telebot
 from telebot import types
+
+# وارد کردن تنظیمات و دیتابیس از فایل‌های جدید
 import config
 import database
 
@@ -18,6 +20,8 @@ def run():
 
 def keep_alive():
     Thread(target=run).start()
+
+# مقداردهی اولیه دیتابیس
 database.init_db()
 
 bot = telebot.TeleBot(config.TOKEN)
@@ -49,7 +53,6 @@ def send_welcome(message):
     markup.add(btn_game, btn_profile)
     markup.add(btn_wallet, btn_topup)
 
-
     bot.send_message(message.chat.id, "🃏 به ربات مدیریت بازی مافیا خوش آمدید!\n\nلطفاً از منوی پایین استفاده کنید:", parse_mode="Markdown", reply_markup=markup)
 
 @bot.message_handler(func=lambda message: message.text == "💰 کیف پول")
@@ -77,6 +80,7 @@ def show_profile(message):
         status = "🚫 در بازداشتگاه است (بن ۲۴ ساعته)"
     elif warns > 0:
         status = f"⚠️ در معرض خطر ( {warns} اخطار دارد)"
+
     profile_text = (f"─── ⋆ 🃏 ⋆ ───\n✨ پروفایل بازیکن\n────────────────\n👤 نام: {name}\n🛡️ وضعیت: {status}\n────────────────\n🏆 برد: {wins} | ❌ باخت: {losses}\n🌟 رنک: {'لجند 👑' if wins > 20 else 'مبتدی 🌱'}\n────────────────")
     bot.reply_to(message, profile_text, parse_mode="Markdown")
 
@@ -108,7 +112,6 @@ def join_game(call):
             if available_rooms:
                 room_link = available_rooms[0]
                 used_rooms.append(room_link)
-
                 bot.edit_message_text(f"🚀 تعداد بازیکنان تکمیل شد!\n\n🎮 بازی {game_name} استارت خورد.\n\n👇 فقط ۸ نفر منتخب مجاز به ورود هستند:\n{room_link}", call.message.chat.id, call.message.message_id, parse_mode="Markdown")
                 game_rooms[game_name]["players"] = []
             else:
@@ -137,6 +140,7 @@ def anti_toxic(message):
             warns += 1
             database.update_user_data(user_id, "warnings", warns)
             if warns < 3:
+
                 bot.reply_to(message, f"⚠️ {message.fromuser.first_name} عزیز!\nبی‌ادبی ممنوع است.\n🔴 اخطار {warns} از ۳", parse_mode="Markdown")
             else:
                 ban_time = int(time.time()) + (24 * 3600)
