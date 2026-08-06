@@ -11,19 +11,23 @@ def init_db():
             balance INTEGER DEFAULT 30, 
             wins INTEGER DEFAULT 0,
             losses INTEGER DEFAULT 0,
-            warnings INTEGER DEFAULT 0,
-            ban_until INTEGER DEFAULT 0
+            last_daily INTEGER DEFAULT 0
         )
     """)
     conn.commit()
     conn.close()
 
-def get_user(user_id):
+def get_or_create_user(user_id, username):
     conn = sqlite3.connect("mafia.db")
     cursor = conn.cursor()
-    # در خط پایین علامت  اضافه شد تا خطا برطرف شود
-    cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
+    cursor.execute("SELECT user_id, username, gender, balance, wins, losses FROM users WHERE user_id = ?", (user_id,))
     user = cursor.fetchone()
+    if not user:
+        cursor.execute("INSERT INTO users (user_id, username, gender, balance, wins, losses) VALUES (?, ?, ?, ?, ?, ?)",
+                     (user_id, username, 'نامشخص', 30, 0, 0))
+        conn.commit()
+        cursor.execute("SELECT user_id, username, gender, balance, wins, losses FROM users WHERE user_id = ?", (user_id,))
+        user = cursor.fetchone()
     conn.close()
     return user
 
