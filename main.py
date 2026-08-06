@@ -10,6 +10,7 @@ from telebot import types
 ADMIN_ID = 580588329 
 CARD_NUMBER = "5022291095892657" 
 CARD_NAME = "رومینا" 
+SUPPORT_USERNAME = "@mafiasho_admin"
 # ===========================================================
 
 app = Flask('')
@@ -31,29 +32,24 @@ def init_db():
             user_id INTEGER PRIMARY KEY,
             username TEXT,
             gender TEXT DEFAULT 'نامشخص',
-            balance INTEGER DEFAULT 30000, 
+            balance INTEGER DEFAULT 30, 
             wins INTEGER DEFAULT 0,
             losses INTEGER DEFAULT 0,
             last_daily INTEGER DEFAULT 0
         )
     """)
-    # هماهنگ‌سازی دیتابیس قدیمی در صورت وجود
-    try:
-        cursor.execute("ALTER TABLE users ADD COLUMN balance INTEGER DEFAULT 30000")
-    except sqlite3.OperationalError:
-        pass
     conn.commit()
     conn.close()
 
 def get_or_create_user(user_id, username):
     conn = sqlite3.connect("mafia.db")
     cursor = conn.cursor()
-    # استفاده از ستون‌های مشخص برای جلوگیری از به هم ریختگی اندیس‌ها
     cursor.execute("SELECT user_id, username, gender, balance, wins, losses FROM users WHERE user_id = ?", (user_id,))
     user = cursor.fetchone()
     if not user:
+        # موجودی اولیه 30 سکه برای بازی اول
         cursor.execute("INSERT INTO users (user_id, username, gender, balance, wins, losses) VALUES (?, ?, ?, ?, ?, ?)",
-                     (user_id, username, 'نامشخص', 30000, 0, 0))
+                     (user_id, username, 'نامشخص', 30, 0, 0))
         conn.commit()
         cursor.execute("SELECT user_id, username, gender, balance, wins, losses FROM users WHERE user_id = ?", (user_id,))
         user = cursor.fetchone()
@@ -71,6 +67,7 @@ TOKEN = '8483915034:AAGBY8ssHFQCWLzkvoa7dCupw0rSiqbgeq4'
 bot = telebot.TeleBot(TOKEN)
 
 user_payment_step = {}
+user_report_step = {}
 
 def get_main_keyboard():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -90,15 +87,10 @@ def show_profile(message):
     username = message.from_user.first_name
     user_data = get_or_create_user(user_id, username)
     
-    name = user_data[1]
-    gender = user_data[2]
-    wins = user_data[4]
-    losses = user_data[5]
-    
+    name, gender, wins, losses = user_data[1], user_data[2], user_data[4], user_data[5]
     total_games = wins + losses
     win_rate = int((wins / total_games) * 100) if total_games > 0 else 0
     
-    # ظاهر مینیمال، شیک و بدون کلمات اضافی
     profile_text = (
         f"─── ⋆ 👤 ⋆ ───\n"
         f"✨ *مشخصات کاربری*\n"
@@ -120,7 +112,7 @@ def show_profile(message):
     
     bot.reply_to(message, profile_text, parse_mode="Markdown", reply_markup=markup)
 
-@bot.message_handler(func=lambda message: message.text in ["💳 حساب", "💰 سکه"])
+@bot.message_handler(func=lambda message: message.text == "💳 حساب")
 def coin_section(message):
     user_id = message.from_user.id
     user_data = get_or_create_user(user_id, message.from_user.first_name)
@@ -129,9 +121,9 @@ def coin_section(message):
     coin_text = (f"💳 *مدیریت حساب کاربری*\n"
                  f"────────────────\n\n"
                  f"💰 موجودی فعلی شما:\n"
-                 f"`{balance:,} تومان`\n\n"
+                 f"`{balance} سکه`\n\n"
                  f"────────────────\n"
-                 f"برای شارژ حساب خود می‌توانید از دکمه زیر استفاده کنید:")
+                 f"هر بازی ۳۰ سکه هزینه دارد.")
     
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("💳 شارژ حساب", callback_data="top_up"))
@@ -139,14 +131,20 @@ def coin_section(message):
 
 @bot.message_handler(func=lambda message: message.text == "📞 پشتیبانی")
 def support_section(message):
-    support_text = (
-        f"📞 *پشتیبانی رسمی مافیا شو*\n"
-        f"────────────────\n\n"
-        f"برای حل مشکلات پرداخت، گزارش باگ یا ارتباط با مدیریت، با آیدی زیر در ارتباط باشید:\n\n"
-        f"👉 @mafiasho_admin\n\n"
-        f"────────────────"
-    )
-    bot.reply_to(message, support_text, parse_mode="Markdown")
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("📩 ارسال گزارش", callback_data="send_report"))
+    markup.add(types.InlineKeyboardButton("👨‍💻 ارتباط با ادمین", callback_data="contact_admin"))
+    
+    support_text = "🛠 *بخش پشتیبانی*\n────────────────\nلطفاً گزینه مورد نظر خود را انتخاب کنید:"
+    bot.reply_to(message, support_text, parse_mode="Markdown", reply_markup=markup)
+
+@bot.message_handler(func=lambda message: message.text == "❤️ دوستان")
+def friends_section(message):
+    bot.reply_to(message, "👥 شما در حال حاضر هیچ دوستی ندارید.")
+
+@bot.message_handler(func=lambda message: message.text == "🌟 امتیازات")
+def ranking_section(message):
+    bot.reply_to(message, "🏆 *رده‌بندی کلی*\n────────────────\nدر حال حاضر لیست امتیازات در حال به‌روزرسانی است.")
 
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callback(call):
@@ -165,17 +163,39 @@ def handle_callback(call):
         update_user_data(user_id, "gender", gender_text)
         bot.answer_callback_query(call.id, "تغییر کرد ✅")
         bot.delete_message(call.message.chat.id, call.message.message_id)
+    
+    # --- بخش پشتیبانی ---
+    elif call.data == "contact_admin":
+        bot.answer_callback_query(call.id, "در حال انتقال...")
+        bot.send_message(call.message.chat.id, f"برای ارتباط با مدیریت کلیک کنید:\n{SUPPORT_USERNAME}")
+    elif call.data == "send_report":
+        user_report_step[user_id] = True
+        msg = bot.send_message(call.message.chat.id, "📝 لطفاً گزارش یا مشکل خود را بنویسید و ارسال کنید:")
+        bot.register_next_step_handler(msg, process_report)
+
+    # --- بخش شارژ ---
     elif call.data == "top_up":
         markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("💎 ۱۵۰ هزار تومان", callback_data="pay_150"))
-        markup.add(types.InlineKeyboardButton("💎 ۳۰۰ هزار تومان", callback_data="pay_300"))
-        markup.add(types.InlineKeyboardButton("💎 ۴۵۰ هزار تومان", callback_data="pay_450"))
+        markup.add(types.InlineKeyboardButton("💎 ۱۶۰ هزار تومان", callback_data="pay_160"))
+        markup.add(types.InlineKeyboardButton("💎 ۳۴۰ هزار تومان", callback_data="pay_340"))
+        markup.add(types.InlineKeyboardButton("💎 ۵۵۰ هزار تومان", callback_data="pay_550"))
         bot.edit_message_text("💵 مبلغ شارژ را انتخاب کنید:", call.message.chat.id, call.message.message_id, reply_markup=markup)
     elif call.data.startswith("pay_"):
         amount = call.data.split("_")[1]
         user_payment_step[user_id] = amount
-        payment_text = (f"💳 *اطلاعات واریز*\n━━━━━━━━━━━━\n\n💰 مبلغ: `{amount},000 تومان`\n📌 شماره کارت: `{CARD_NUMBER}`\n👤 به نام: `{CARD_NAME}`\n\nلطفاً پس از واریز عکس رسید خود را بفرستید.")
+        payment_text = (f"💳 *اطلاعات واریز*\n━━━━━━━━━━━━\n\n💰 مبلغ: `{amount},000 تومان`\n📌 شماره کارت: `{CARD_NUMBER}`\n👤 به نام: `{CARD_NAME}`\n\nلطفاً عکس رسید را بفرستید.")
         bot.send_message(call.message.chat.id, payment_text, parse_mode="Markdown")
+
+def process_report(message):
+    user_id = message.from_user.id
+    if user_id in user_report_step:
+        report_text = (f"📩 *گزارش جدید*\n────────────────\n"
+                       f"👤 کاربر: {message.from_user.first_name}\n"
+                       f"🆔 آیدی: `{user_id}`\n"
+                       f"📝 متن گزارش:\n{message.text}")
+        bot.send_message(ADMIN_ID, report_text, parse_mode="Markdown")
+        bot.reply_to(message, "✅ گزارش شما با موفقیت برای مدیریت ارسال شد. متشکریم.")
+        del user_report_step[user_id]
 
 @bot.message_handler(content_types=['photo'])
 def handle_receipt(message):
@@ -190,7 +210,8 @@ def handle_receipt(message):
 def save_new_name(message):
     update_user_data(message.from_user.id, "username", message.text)
     bot.send_message(message.chat.id, f"✅ نام شما به {message.text} تغییر یافت.")
-    if __name__ == "__main__":
+
+if __name__ == "__main__":
     init_db()
     keep_alive()
     bot.infinity_polling()
