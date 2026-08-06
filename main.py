@@ -9,7 +9,8 @@ from telebot import types
 # --- Flask for Render ---
 app = Flask('')
 @app.route('/')
-def home(): return "Bot is alive!"
+def home(): 
+    return "Bot is alive!"
 
 def run():
     port = int(os.environ.get("PORT", 8000))
@@ -37,8 +38,6 @@ def init_db():
     conn.close()
 
 def get_or_create_user(user_id, username):
-    conn = sqlite3. la_connect("mafia.db") if hasattr(sqlite3, 'la_connect') else sqlite3.connect("mafia.db")
-    # Correction for potential import issue in some environments
     conn = sqlite3.connect("mafia.db")
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
@@ -162,5 +161,9 @@ def echo_all(message):
 if __name__ == "__main__":
     init_db()
     keep_alive()
+    print("Bot is starting...")
     bot.infinity_polling()
 ```
+
+
+
