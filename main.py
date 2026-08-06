@@ -79,8 +79,8 @@ def show_profile(message):
     if ban_until and ban_until > time.time():
         status = "🚫 در بازداشتگاه است (بن ۲۴ ساعته)"
     elif warns > 0:
-        status = f"⚠️ در معرض خطر ( {warns} اخطار دارد)"
 
+        status = f"⚠️ در معرض خطر ( {warns} اخطار دارد)"
     profile_text = (f"─── ⋆ 🃏 ⋆ ───\n✨ پروفایل بازیکن\n────────────────\n👤 نام: {name}\n🛡️ وضعیت: {status}\n────────────────\n🏆 برد: {wins} | ❌ باخت: {losses}\n🌟 رنک: {'لجند 👑' if wins > 20 else 'مبتدی 🌱'}\n────────────────")
     bot.reply_to(message, profile_text, parse_mode="Markdown")
 
@@ -151,6 +151,6 @@ def anti_toxic(message):
                 except: pass
                 database.update_user_data(user_id, "warnings", 0)
 
-if _name == "__main__":
-    keep_alive()
-    bot.infinity_polling()
+# شروع ربات بدون استفاده از شرط _name برای جلوگیری از خطا
+keep_alive()
+bot.infinity_polling()
