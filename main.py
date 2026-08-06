@@ -25,7 +25,7 @@ def keep_alive():
     Thread(target=run).start()
 
 def init_db():
-    conn = sqlite3.connect("mafia.db")
+    conn = sqlite3.connect("mafia. la")
     cursor = conn.cursor()
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
@@ -47,7 +47,6 @@ def get_or_create_user(user_id, username):
     cursor.execute("SELECT user_id, username, gender, balance, wins, losses FROM users WHERE user_id = ?", (user_id,))
     user = cursor.fetchone()
     if not user:
-        # موجودی اولیه 30 سکه برای بازی اول
         cursor.execute("INSERT INTO users (user_id, username, gender, balance, wins, losses) VALUES (?, ?, ?, ?, ?, ?)",
                      (user_id, username, 'نامشخص', 30, 0, 0))
         conn.commit()
@@ -66,6 +65,14 @@ def update_user_data(user_id, column, value):
 TOKEN = '8483915034:AAGBY8ssHFQCWLzkvoa7dCupw0rSiqbgeq4' 
 bot = telebot.TeleBot(TOKEN)
 
+# دیتابیس موقت برای مدیریت اتاق‌های انتظار
+game_rooms = {
+    "زودیاک": {"players": [], "min_players": 8},
+    "شب مافیا": {"players": [], "min_players": 8},
+    "پدرخوانده": {"players": [], "min_players": 8},
+    "کلاسیک پیشرفته": {"players": [], "min_players": 8}
+}
+
 user_payment_step = {}
 user_report_step = {}
 
@@ -81,35 +88,58 @@ def get_main_keyboard():
 def send_welcome(message):
     bot.send_message(message.chat.id, "خوش آمدید! گزینه‌ای را انتخاب کنید:", reply_markup=get_main_keyboard())
 
+@bot.message_handler(func=lambda message: message.text == "🕹 شروع بازی آنلاین")
+def game_selection(message):
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    buttons = [
+        types.InlineKeyboardButton("🌌 زودیاک", callback_data="join_زودیاک"),
+        types.InlineKeyboardButton("🌑 شب مافیا", callback_data="join_شب مافیا"),
+        types.InlineKeyboardButton("🎩 پدرخوانده", callback_data="join_پدرخوانده"),
+        types.InlineKeyboardButton("🏆 کلاسیک پیشرفته", callback_data="join_کلاسیک پیشرفته")
+    ]
+    markup.add(*buttons)
+    bot.send_message(message.chat.id, "🎯 *مدل بازی مورد نظر خود را انتخاب کنید:*\n(با انتخاب هر بازی، وارد اتاق انتظار می‌شوید)", parse_mode="Markdown", reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("join_"))
+def join_game(call):
+    game_name = call.data.split("_")[1]
+    user = call.from_user
+    
+    if user.first_name not in game_rooms[game_name]["players"]:
+        game_rooms[game_name]["players"].append(user.first_name)
+        
+        # ساخت لیست بازیکنان به صورت جذاب
+        players_list = "\n".join([f"🔹 {p}" for p in game_rooms[game_name]["players"]])
+        count = len(game_rooms[game_name]["players"])
+        
+        text = (f"🎮 *اتاق انتظار: {game_name}*\n"
+                f"────────────────\n"
+                f"👥 بازیکنان حاضر:\n{players_list}\n"
+                f"────────────────\n"
+                f"⏳ تعداد: {count} / {game_rooms[game_name]['min_players']}")
+        
+        if count >= game_rooms[game_name]["min_players"]:
+            bot.edit_message_text(f"🚀 *تعداد بازیکنان تکمیل شد!*\nبازی {game_name} همین حالا استارت می‌زند.", call.message.chat.id, call.message.message_id, parse_mode="Markdown")
+            # اینجا در آینده تابع استارت بازی قرار می‌گیرد
+        else:
+            bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="Markdown")
+            bot.answer_callback_query(call.id, "وارد اتاق انتظار شدید ✅")
+    else:
+        bot.answer_callback_query(call.id, "شما قبلاً در این اتاق ثبت‌نام کرده‌اید! ⚠️")
+
+# --- سایر بخش‌ها (پروفایل، حساب، پشتیبانی) دقیقا مانند نسخه قبل است ---
 @bot.message_handler(func=lambda message: message.text == "👤 پروفایل")
 def show_profile(message):
     user_id = message.from_user.id
     username = message.from_user.first_name
     user_data = get_or_create_user(user_id, username)
-    
     name, gender, wins, losses = user_data[1], user_data[2], user_data[4], user_data[5]
     total_games = wins + losses
     win_rate = int((wins / total_games) * 100) if total_games > 0 else 0
-    
-    profile_text = (
-        f"─── ⋆ 👤 ⋆ ───\n"
-        f"✨ *مشخصات کاربری*\n"
-        f"────────────────\n"
-        f"👤 نام: {name}\n"
-        f"⚧ جنسیت: {gender}\n"
-        f"🆔 شناسه: `{user_id}`\n\n"
-        f"🎮 *آمار بازی‌ها*\n"
-        f"🏆 برد: {wins}\n"
-        f"❌ باخت: {losses}\n"
-        f"📈 درصد برد: {win_rate}%\n"
-        f"────────────────"
-    )
-    
+    profile_text = (f"─── ⋆ 👤 ⋆ ───\n✨ *مشخصات کاربری*\n────────────────\n👤 نام: {name}\n⚧ جنسیت: {gender}\n🆔 شناسه: `{user_id}`\n\n🎮 *آمار بازی‌ها*\n🏆 برد: {wins}\n❌ باخت: {losses}\n📈 درصد برد: {win_rate}%\n────────────────")
     markup = types.InlineKeyboardMarkup(row_width=2)
-    markup.add(types.InlineKeyboardButton("تغییر نام ✏️", callback_data="edit_name"), 
-               types.InlineKeyboardButton("تغییر جنسیت ⚧️", callback_data="edit_gender"))
+    markup.add(types.InlineKeyboardButton("تغییر نام ✏️", callback_data="edit_name"), types.InlineKeyboardButton("تغییر جنسیت ⚧️", callback_data="edit_gender"))
     markup.add(types.InlineKeyboardButton("بستن ❌", callback_data="close_profile"))
-    
     bot.reply_to(message, profile_text, parse_mode="Markdown", reply_markup=markup)
 
 @bot.message_handler(func=lambda message: message.text == "💳 حساب")
@@ -117,14 +147,7 @@ def coin_section(message):
     user_id = message.from_user.id
     user_data = get_or_create_user(user_id, message.from_user.first_name)
     balance = user_data[3]
-    
-    coin_text = (f"💳 *مدیریت حساب کاربری*\n"
-                 f"────────────────\n\n"
-                 f"💰 موجودی فعلی شما:\n"
-                 f"`{balance} سکه`\n\n"
-                 f"────────────────\n"
-                 f"هر بازی ۳۰ سکه هزینه دارد.")
-    
+    coin_text = (f"💳 *مدیریت حساب کاربری*\n────────────────\n\n💰 موجودی فعلی شما:\n`{balance} سکه`\n\n────────────────\nهر بازی ۳۰ سکه هزینه دارد.")
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("💳 شارژ حساب", callback_data="top_up"))
     bot.reply_to(message, coin_text, parse_mode="Markdown", reply_markup=markup)
@@ -134,7 +157,6 @@ def support_section(message):
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("📩 ارسال گزارش", callback_data="send_report"))
     markup.add(types.InlineKeyboardButton("👨‍💻 ارتباط با ادمین", callback_data="contact_admin"))
-    
     support_text = "🛠 *بخش پشتیبانی*\n────────────────\nلطفاً گزینه مورد نظر خود را انتخاب کنید:"
     bot.reply_to(message, support_text, parse_mode="Markdown", reply_markup=markup)
 
@@ -146,7 +168,7 @@ def friends_section(message):
 def ranking_section(message):
     bot.reply_to(message, "🏆 *رده‌بندی کلی*\n────────────────\nدر حال حاضر لیست امتیازات در حال به‌روزرسانی است.")
 
-@bot.callback_query_handler(func=lambda call: True)
+@bot.callback_query_handler(func=lambda call: not call.data.startswith("join_"))
 def handle_callback(call):
     user_id = call.from_user.id
     if call.data == "close_profile":
@@ -163,8 +185,6 @@ def handle_callback(call):
         update_user_data(user_id, "gender", gender_text)
         bot.answer_callback_query(call.id, "تغییر کرد ✅")
         bot.delete_message(call.message.chat.id, call.message.message_id)
-    
-    # --- بخش پشتیبانی ---
     elif call.data == "contact_admin":
         bot.answer_callback_query(call.id, "در حال انتقال...")
         bot.send_message(call.message.chat.id, f"برای ارتباط با مدیریت کلیک کنید:\n{SUPPORT_USERNAME}")
@@ -172,8 +192,6 @@ def handle_callback(call):
         user_report_step[user_id] = True
         msg = bot.send_message(call.message.chat.id, "📝 لطفاً گزارش یا مشکل خود را بنویسید و ارسال کنید:")
         bot.register_next_step_handler(msg, process_report)
-
-    # --- بخش شارژ ---
     elif call.data == "top_up":
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("💎 ۱۶۰ هزار تومان", callback_data="pay_160"))
